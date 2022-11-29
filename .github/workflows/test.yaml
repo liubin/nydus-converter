@@ -1,20 +1,67 @@
-on: [push]
+name: convert by comments
+
+## will be triggered by opening a new issue or adding comments.
+on:
+  issues:
+    types:
+      - opened
 
 env:
   REGISTRY: ghcr.io
 
 jobs:
-  converter_job:
+  converter-job:
     runs-on: ubuntu-latest
-    name: Test convert v5 image
+    if:
+      ${{ !github.event.issue.pull_request }}
+      && ${{ github.repository }} == "liubin/nydus-converter"
+      && ${{ github.actor }} == 'liubin'
+      && startsWith(github.event.comment.body, '/convert ')
+    name: Test convert v5 image by issue
     steps:
       - uses: actions/checkout@v3
+      - name: Check issue body
+        shell: bash
+        run: |
+          # bless there are no quotas or double quotas
+          body='${{ github.event.issue.body }}'
+          # ignore this very simple regex
+          regex='\/convert (docker.io\/(.*)?\/(.*)?:(.*)?)'
+          if [[ $body =~ $regex ]]
+          then
+              image=$(echo ${BASH_REMATCH[1]} | tr -d '\n')
+              echo "got image: $image"
+              echo "SOURCE=$image" >> $GITHUB_ENV
+          fi
       - name: convert image
+        id: nydus-converter
         uses: ./
         with:
-          source: "docker.io/library/alpine:latest"
+          source: ${{ env.SOURCE }}
           fs-version: "5"
           registry: ${{ env.REGISTRY }}
           repository: ${{ github.repository }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Message success
+        if: ${{ success() }}
+        uses: actions/github-script@v4
+        with:
+          script: |
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "Conversion succeeded! ✅\nThe nydus image is ${{ steps.nydus-converter.outputs.nydus-image }}, you can use `docker pull` to use it:\n```bash\n$ docker pull ${{ steps.nydus-converter.outputs.nydus-image }}\n```\n",
+            });
+      - name: Message failure
+        if: ${{ failure() }}
+        uses: actions/github-script@v4
+        with:
+          script: |
+            github.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: "Conversion failed! ❌",
+            });
