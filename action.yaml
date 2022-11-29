@@ -29,6 +29,10 @@ inputs:
   password:
     description: 'Password to login to target registry'
     required: true
+outputs:
+  nydus-image:
+    description: "Random number"
+    value: ${{ steps.nydus-converter.outputs.nydus-image }}
 runs:
   using: "composite"
   steps:
@@ -54,6 +58,7 @@ runs:
         cd erofs-utils && git apply ../fsck.patch && ./autogen.sh && ./configure && make && cd ..
         sudo cp erofs-utils/fsck/fsck.erofs /usr/local/bin/
     - name: Convert Nydus images
+      id: nydus-converter
       shell: bash
       run: |
           I="${{ inputs.source }}"
@@ -72,3 +77,5 @@ runs:
                 --target ${{ inputs.registry }}/$new_repo \
                 --build-cache ${{ inputs.registry }}/$build_cache_repo \
                 --fs-version $V
+          output="${{ inputs.registry }}/$new_repo"
+          echo "nydus-image=$(echo $output)" >> $GITHUB_OUTPUT

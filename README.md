@@ -10,7 +10,7 @@ GitHub action for convertering OCI images to nydus.
 
 ## Usage
 
-This workflow will convert `docker.io/library/alpine:latest` to `ghcr.io/liubin/alpine:latest-nydus-v5`, where the target image is composed by:
+[This workflow](examples/on-push.yaml) will convert `docker.io/library/alpine:latest` to `ghcr.io/liubin/alpine:latest-nydus-v5`, where the target image is composed by:
 
 - `ghcr.io`: GitHub container registry
 - `liubin`: the organization of current repo(get from `${{ github.repository }}`)
