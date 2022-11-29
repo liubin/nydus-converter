@@ -1,0 +1,74 @@
+name: 'Nydus image converter'
+description: 'Convert any OCI image to nydus image'
+inputs:
+  source:
+    description: 'The source image ref'
+    required: true
+  target:
+    description: 'The target nydus image(If no target is specified, the `-nydus` will be appended to the source image)'
+    required: false
+  fs-version:
+    description: 'Rafs version, 5 or 6'
+    required: false
+    default: "5"
+  nydus-version:
+    description: 'Nydus version'
+    required: false
+    default: "??"
+
+  registry:
+    description: 'Target registry'
+    required: false
+    default: "ghcr.io"
+  repository:
+    description: 'Current GitHub repository(in a `org/repo` style)'
+    required: true
+  username:
+    description: 'Username to login to target registry'
+    required: true
+  password:
+    description: 'Password to login to target registry'
+    required: true
+runs:
+  using: "composite"
+  steps:
+    - name: Install Nydus binaries
+      shell: bash
+      run: |
+        NYDUS_VERSION=$(curl --silent "https://api.github.com/repos/dragonflyoss/image-service/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
+        wget https://github.com/dragonflyoss/image-service/releases/download/$NYDUS_VERSION/nydus-static-$NYDUS_VERSION-linux-amd64.tgz
+        tar xzf nydus-static-$NYDUS_VERSION-linux-amd64.tgz
+        sudo cp nydus-static/nydusify nydus-static/nydus-image /usr/local/bin/
+        sudo cp nydus-static/nydusd /usr/local/bin/nydusd
+    - name: Log in to the container registry
+      uses: docker/login-action@f054a8b539a109f9f41c372932f1ae047eff08c9
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.password }}
+    - name: Build fsck.erofs
+      shell: bash
+      run: |
+        sudo apt-get update && sudo apt-get install -y build-essential git autotools-dev automake libtool pkg-config uuid-dev liblz4-dev
+        git clone https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git
+        cd erofs-utils && git apply ../fsck.patch && ./autogen.sh && ./configure && make && cd ..
+        sudo cp erofs-utils/fsck/fsck.erofs /usr/local/bin/
+    - name: Convert Nydus images
+      shell: bash
+      run: |
+          I="${{ inputs.source }}"
+          V="${{ inputs.fs-version }}"
+          repo_tag=$(echo $I | cut -d'/' -f3)
+          repo=$(echo $repo_tag | cut -d':' -f1) # alpine
+          tag=$(echo $repo_tag | cut -d':' -f2) # latest
+          org=$(echo "${{ inputs.repository }}" | cut -d'/' -f1)
+          new_repo="$org/$repo:$tag-nydus-v$V"
+          build_cache_repo="$org/nydus-build-cache:$repo-$tag-v$V"
+
+          echo "converting $I to $new_repo with cache $build_cache_repo"
+          # for pre-built images
+          sudo DOCKER_CONFIG=$HOME/.docker nydusify convert \
+                --source $I \
+                --target ${{ inputs.registry }}/$new_repo \
+                --build-cache ${{ inputs.registry }}/$build_cache_repo \
+                --fs-version $V
